@@ -91,7 +91,7 @@ h1{margin:2px 0 0;font:900 32px/1.08 var(--f-round);letter-spacing:-.01em;text-w
 .pill.low{background:rgba(255,179,64,.15);color:var(--amber)}
 .pill.high{background:rgba(255,69,58,.15);color:var(--red)}
 .pill.mute{background:var(--s2);color:var(--tx2)}
-input[type=text],input[type=number],input[type=search],select,textarea{width:100%;min-height:46px;border:1px solid transparent;border-radius:14px;background:var(--s2);padding:11px 14px;outline:none;font-size:16px}
+input[type=text],input[type=number],input[type=search],input[type=date],input[type=time],select,textarea{width:100%;min-height:46px;border:1px solid transparent;border-radius:14px;background:var(--s2);padding:11px 14px;outline:none;font-size:16px}
 input:focus,select:focus,textarea:focus{border-color:var(--green);box-shadow:0 0 0 4px rgba(48,209,88,.14)}
 input::placeholder,textarea::placeholder{color:var(--tx3)}
 textarea{resize:vertical;line-height:1.45}
@@ -397,6 +397,24 @@ ol.steps li span{padding-top:4px;font-size:16px;line-height:1.5}
 .sdrow{grid-template-columns:minmax(0,1fr) auto auto auto}
 .minibtn{appearance:none;border:0;background:var(--green);color:#04150a;border-radius:999px;padding:7px 12px;font-weight:800;font-size:13px}
 
+/* shopping lists (trips) */
+input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;display:block;text-align:left}
+.trow{grid-template-columns:48px minmax(0,1fr) auto}
+.trow .row-tx{gap:3px}
+.tdate{width:48px;height:48px;border-radius:14px;background:var(--s2);display:grid;place-content:center;text-align:center;line-height:1.05;gap:2px}
+.tdate b{font:900 19px var(--f-round)}
+.tdate span{font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--tx2)}
+.tdate.today{background:rgba(48,209,88,.16);color:var(--green)}
+.tdate.today span{color:var(--green)}
+.tdate.past{opacity:.6}
+.tripcard{appearance:none;width:100%;margin-top:14px;display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:center;padding:14px 16px;text-align:left;border-color:rgba(0,157,224,.35);background:linear-gradient(120deg,rgba(0,157,224,.15),var(--s1) 70%)}
+.tripcard .ti{width:44px;height:44px;border-radius:14px;background:rgba(0,157,224,.18);color:var(--wolt);display:grid;place-items:center}
+.tripcard .row-tx{gap:2px}
+.money{position:relative}
+.money span{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--tx2);font-weight:800}
+.money input{padding-left:32px}
+.tadd{display:grid;grid-template-columns:minmax(0,1fr) 86px auto;gap:6px;margin-top:12px}
+
 /* tab bar */
 .tabbar{position:fixed;z-index:40;left:max(14px,env(safe-area-inset-left,0px));right:max(14px,env(safe-area-inset-right,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px));max-width:430px;margin:0 auto;height:var(--tab-h);border-radius:33px;background:rgba(30,31,35,.74);-webkit-backdrop-filter:blur(26px) saturate(1.8);backdrop-filter:blur(26px) saturate(1.8);border:1px solid var(--line2);box-shadow:0 16px 40px rgba(0,0,0,.55);display:grid;grid-template-columns:repeat(5,minmax(0,1fr));align-items:center;padding:0 6px}
 .tb{appearance:none;border:0;background:none;color:var(--tx3);display:grid;justify-items:center;gap:3px;font-size:10.5px;font-weight:700;padding:8px 0;border-radius:20px;transition:color .15s}
@@ -634,7 +652,7 @@ const dayDate = i => { const d = new Date(MONDAY); d.setDate(MONDAY.getDate() + 
 const S = {
   db:null, assets:null, loaded:false,
   recipes:{}, plan:{}, pantry:new Set(), log:{eaten:{}, extras:[], water:0}, weights:[], drinks:[],
-  view:"", filter:"all", q:"", kitchen:false, weekDay:todayDay, dId:null, dTab:"ing",
+  view:"", filter:"all", q:"", kitchen:false, weekDay:todayDay, dId:null, dTab:"ing", trips:[], shopTab:lsGet("shop-tab", "lists"),
 };
 const view = document.getElementById("view");
 const nav = document.getElementById("nav");
@@ -724,6 +742,7 @@ function setView(v){
   view.classList.remove("enter"); void view.offsetWidth; view.classList.add("enter");
 }
 window.addEventListener("hashchange", () => setView(location.hash.slice(1)));
+view.addEventListener("click", e => { const b = e.target.closest("[data-shoptab]"); if (!b) return; S.shopTab = b.dataset.shoptab; lsSet("shop-tab", S.shopTab); renderShop(); });
 window.addEventListener("scroll", () => nav.classList.toggle("on", window.scrollY > 36), {passive:true});
 
 function render(){
@@ -816,7 +835,9 @@ function renderToday(){
   const extras = S.log.extras.map((x, i) => `<div class="row xrow"><span class="row-tx"><span class="nm">${esc(x.name)}</span></span><span class="kc">${fmt(x.kcal)}</span><button class="xbtn" data-rmx="${i}" aria-label="Remove ${esc(x.name)}">${ic("x")}</button></div>`).join("");
   const cups = Array.from({length:WATER_CUPS}, (_, i) => `<button class="cup ${i < w ? "on" : ""}" data-water="${i+1}" aria-label="${(i+1)*250} ml"></button>`).join("");
 
-  view.innerHTML = head + summary + next + `
+  const soon = S.trips.filter(t => t.status !== "done" && t.date <= addDays(todayKey, 1)).sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")))[0];
+  const tripBanner = soon ? (() => { const n = (soon.items || []).length, got = (soon.items || []).filter(i => i.done).length; return `<button class="card tripcard" data-trip="${esc(soon.id)}"><span class="ti">${ic("bag")}</span><span class="row-tx"><span class="kick" style="color:var(--wolt)">${soon.date < todayKey ? "Not logged yet" : "Shopping"} · ${esc(whenLabel(soon))}</span><span class="nm">${esc(soon.store || "Shopping list")}</span><span class="sub">${n} items · ${got} in the basket</span></span>${ic("right", "chev")}</button>`; })() : "";
+  view.innerHTML = head + summary + next + tripBanner + `
     <div class="sec"><h2>Today's meals</h2><span>Resets at 5 am</span></div>
     <div class="list">${rows}</div>
     <div class="sec"><h2>Drinks & extras</h2><span>${xK ? fmt(xK) + " kcal logged" : "Tap to log"}</span></div>
@@ -835,6 +856,7 @@ function renderToday(){
       <div style="display:flex;gap:8px"><button class="btn" id="bk-save" style="flex:1">Save backup</button><label class="btn" style="flex:1">Restore<input type="file" accept="application/json,.json" id="bk-load" hidden></label></div></section>`;
 
   view.querySelectorAll("[data-log]").forEach(b => b.onclick = () => openLogMeal(b.dataset.log));
+  view.querySelectorAll("[data-trip]").forEach(b => b.onclick = () => openTrip(b.dataset.trip));
   view.querySelectorAll("[data-open]").forEach(b => b.onclick = () => openRecipe(b.dataset.open));
   view.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { const [d, m] = b.dataset.pick.split("|"); openPicker(d, m); });
   view.querySelectorAll("[data-quick]").forEach(b => b.onclick = () => { const [n, k] = b.dataset.quick.split("|"); S.log.extras = [...S.log.extras, {name:n, kcal:+k}]; saveLog(); toast(`Logged ${n} · ${k} kcal`); });
@@ -1011,8 +1033,9 @@ function shuffleWeek(){
 
 // ---------- SHOP ----------
 function renderShop(){
-  const head = n => `<div class="lt"><div class="lt-tx"><p class="kick">${n ? n + " items · this week's plan" : "This week's plan"}</p><h1>Shopping</h1></div></div>`;
+  const head = n => `<div class="lt"><div class="lt-tx"><p class="kick">${n ? n + " items · this week's plan" : "This week's plan"}</p><h1>Shopping</h1></div></div>` + shopSeg();
   if (!hasRecipes()){ view.innerHTML = head(0) + emptyState(); return; }
+  if (S.shopTab === "lists") return renderTrips();
   const agg = new Map();
   for (const [d] of DAYS) for (const m of MEALS){
     const r = getRec((S.plan[d] || {})[m.key]); if (!r || r.id === "out") continue;
@@ -1047,6 +1070,60 @@ function renderShop(){
   const toggle = el => { const b = lsGet("shop-bought", {}); const k = el.dataset.key; b[k] ? delete b[k] : b[k] = 1; lsSet("shop-bought", b); renderShop(); };
   view.querySelectorAll(".srow[data-key]").forEach(el => { el.onclick = e => { if (!e.target.closest("a")) toggle(el); }; el.onkeydown = e => { if (e.key === " " || e.key === "Enter"){ e.preventDefault(); toggle(el); } }; });
   view.querySelector("#reset").onclick = () => { lsSet("shop-bought", {}); renderShop(); };
+}
+
+// ---------- SHOPPING LISTS ----------
+const STORES = ["Agrohub", "Carrefour", "Nikora", "Spar", "Goodwill"];
+const WD = ["sun","mon","tue","wed","thu","fri","sat"];
+const keyDate = k => new Date(k + "T12:00");
+const addDays = (k, n) => { const d = keyDate(k); d.setDate(d.getDate() + n); return dateKey(d); };
+const fmtMoney = v => (Math.round(v * 100) / 100).toFixed(Math.round(v * 100) % 100 ? 2 : 0);
+function whenLabel(t){
+  const rel = t.date === todayKey ? "Today" : t.date === addDays(todayKey, 1) ? "Tomorrow" : t.date === addDays(todayKey, -1) ? "Yesterday" : keyDate(t.date).toLocaleDateString("en-GB", {weekday:"short", day:"numeric", month:"short"});
+  return rel + (t.time ? " · " + t.time : "");
+}
+function nextHour(){ const d = new Date(); d.setHours(d.getHours() + 1, 0, 0, 0); return pad(d.getHours()) + ":00"; }
+const catOf = item => (CATS.find(([, re]) => re.test(item)) || ["Pantry & spices"])[0];
+const CAT_ORDER = [...CATS.map(c => c[0]), "Pantry & spices", "Other"];
+function qtyLine(e){
+  if (e.qtext != null) return {t:e.item, q:e.qtext};
+  if (e.q == null) return {t:e.item, q:""};
+  return e.u === "tsp" && e.q >= 6 ? ingText({q:Math.round(e.q/3*2)/2, u:"tbsp", item:e.item}) : ingText({q:e.q, u:e.u, item:e.item});
+}
+// Everything needed for the planned meals on the chosen weekdays, added up.
+function aggItems(days){
+  const agg = new Map(); let meals = 0;
+  for (const d of days) for (const m of MEALS){
+    const r = getRec((S.plan[d] || {})[m.key]); if (!r || r.id === "out") continue; meals++;
+    for (const i of r.ingredients || []){
+      const u = i.u === "tbsp" ? "tsp" : i.u, q = i.q == null ? null : i.u === "tbsp" ? i.q * 3 : i.q;
+      const key = norm(i.item) + "|" + (q == null ? "" : u);
+      const e = agg.get(key) || {key, item:i.item, u, q:q == null ? null : 0, cat:catOf(i.item), done:false};
+      if (q != null) e.q = Math.round((e.q + q) * 100) / 100;
+      agg.set(key, e);
+    }
+  }
+  return {items:[...agg.values()], meals};
+}
+function saveTrip(t){ S.trips = [...S.trips.filter(x => x.id !== t.id), t]; write("trips/" + t.id, t); }
+const shopSeg = () => `<div class="seg2" style="margin:-4px 0 16px" role="tablist"><button role="tab" data-shoptab="lists" aria-selected="${S.shopTab === "lists"}">Shopping lists</button><button role="tab" data-shoptab="week" aria-selected="${S.shopTab === "week"}">Whole week</button></div>`;
+function tripRow(t){
+  const items = t.items || [], n = items.length, got = items.filter(i => i.done).length, d = keyDate(t.date), done = t.status === "done";
+  return `<button class="row trow" data-trip="${esc(t.id)}"><span class="tdate ${t.date === todayKey && !done ? "today" : ""} ${done ? "past" : ""}"><b>${d.getDate()}</b><span>${d.toLocaleDateString("en-GB", {month:"short"})}</span></span>
+    <span class="row-tx"><span class="nm">${esc(t.store || "Shopping list")}</span><span class="sub">${done ? `${t.spent ? "₾" + fmtMoney(t.spent) + " · " : ""}${got} of ${n} bought · ${esc(whenLabel(t))}` : `${esc(whenLabel(t))} · ${got}/${n} in the basket`}</span>${!done && n ? `<span class="bar"><span style="width:${Math.round(got/n*100)}%"></span></span>` : ""}</span>${ic("right", "chev")}</button>`;
+}
+function renderTrips(){
+  const up = S.trips.filter(t => t.status !== "done").sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")));
+  const past = S.trips.filter(t => t.status === "done").sort((a, b) => (b.loggedAt || b.date).localeCompare(a.loggedAt || a.date));
+  const month = todayKey.slice(0, 7), mt = past.filter(t => (t.loggedDate || t.date || "").startsWith(month)), spent = mt.reduce((s, t) => s + (t.spent || 0), 0);
+  view.innerHTML = `<div class="lt"><div class="lt-tx"><p class="kick">${up.length ? up.length + " planned" : "Plan your shops"}</p><h1>Shopping</h1></div><button class="cbtn green" id="t-new2" aria-label="New shopping list">${ic("plus")}</button></div>${shopSeg()}
+    <div class="sec" style="margin-top:4px"><h2>Coming up</h2><span>${up.length ? up.length + (up.length === 1 ? " list" : " lists") : ""}</span></div>
+    ${up.length ? `<div class="list">${up.map(tripRow).join("")}</div>` : `<div class="empty"><strong>No shops planned</strong>Make a list for a day and time, pick which days of meals it covers, then tick things off in the shop and log it.</div>`}
+    <button class="btn primary block" id="t-new" style="margin-top:12px">${ic("plus")} New shopping list</button>
+    ${past.length ? `<div class="sec"><h2>Logged shops</h2><span>${mt.length} this month${spent ? " · ₾" + fmtMoney(spent) : ""}</span></div><div class="list">${past.slice(0, 30).map(tripRow).join("")}</div>` : ""}`;
+  view.querySelector("#t-new").onclick = () => openTripForm(null);
+  view.querySelector("#t-new2").onclick = () => openTripForm(null);
+  view.querySelectorAll("[data-trip]").forEach(b => b.onclick = () => openTrip(b.dataset.trip));
 }
 
 // ---------- SHEETS ----------
@@ -1270,6 +1347,110 @@ function openDrink(){
   draw();
 }
 
+function openTripForm(t){
+  const isNew = !t || !t.items || t.isCopy;
+  let date = t?.date || todayKey, time = t?.time || nextHour(), store = t?.store ?? "Agrohub";
+  const defDays = k => [0, 1, 2].map(n => WD[(keyDate(k).getDay() + n) % 7]);
+  let days = new Set(t?.days || defDays(date)), skip = true, touched = !!t;
+  const order = DAYS.map(d => d[0]);
+  const draw = () => {
+    const prevEl = root.querySelector(".sheet"); const sc = prevEl ? prevEl.scrollTop : 0;
+    const dateChips = Array.from({length:8}, (_, i) => { const k = addDays(todayKey, i); return `<button type="button" class="chip" data-tfd="${k}" aria-pressed="${k === date}">${i === 0 ? "Today" : i === 1 ? "Tomorrow" : keyDate(k).toLocaleDateString("en-GB", {weekday:"short", day:"numeric"})}</button>`; }).join("");
+    const storeChips = STORES.map(x => `<button type="button" class="chip" data-tfs="${x}" aria-pressed="${x === store}">${x}</button>`).join("");
+    const dayChips = DAYS.map(([d, l]) => `<button type="button" class="chip" data-tfday="${d}" aria-pressed="${days.has(d)}">${l.slice(0, 3)}</button>`).join("");
+    const pv = aggItems(order.filter(d => days.has(d))); const n = pv.items.filter(e => !(skip && S.pantry.has(norm(e.item)))).length;
+    const showMeals = !t || t.isCopy === undefined && !t.items;
+    const el = sheet(`${sheetHead(t && t.items && !t.isCopy ? "Edit shopping list" : t?.isCopy ? "Shop again" : "New shopping list", "Shopping")}<form class="sh-pad" id="tf" novalidate style="display:grid;gap:18px">
+      <div class="field"><span class="lab">Day</span><div class="chips" style="padding-top:0;margin-inline:-18px;padding-inline:18px">${dateChips}</div>
+        <div class="split"><input type="date" id="tf-date" value="${date}" aria-label="Date"><input type="time" id="tf-time" value="${time}" aria-label="Time"></div></div>
+      <div class="field"><span class="lab">Where</span><div class="kchips">${storeChips}</div><input type="text" id="tf-store" placeholder="Or type another shop" value="${STORES.includes(store) ? "" : esc(store)}" autocomplete="off"></div>
+      ${showMeals ? `<div class="field"><span class="lab">Buy for the meals on</span><div class="daychips">${dayChips}</div>
+        <label class="chk" style="margin:4px 2px 0"><input type="checkbox" id="tf-skip" ${skip ? "checked" : ""}> Leave out what's already in my kitchen</label>
+        <p class="muted" style="margin:2px 4px 0;font-size:14px">${days.size ? `<b style="color:var(--tx)">${n} items</b> for ${pv.meals} planned meals. You can add more after.` : "No days picked, so the list starts empty and you add items yourself."}</p></div>` : t?.isCopy ? `<p class="muted" style="margin:0 4px;font-size:14px">${t.items.length} items copied from your last shop, all unticked.</p>` : ""}
+      <button class="btn primary block" type="submit">${isNew ? "Create list" : "Save"}</button></form>`);
+    el.scrollTop = sc; wireClose(el);
+    el.querySelectorAll("[data-tfd]").forEach(b => b.onclick = () => { date = b.dataset.tfd; if (!touched) days = new Set(defDays(date)); draw(); });
+    el.querySelector("#tf-date").onchange = e => { if (e.target.value){ date = e.target.value; if (!touched) days = new Set(defDays(date)); draw(); } };
+    el.querySelector("#tf-time").onchange = e => { time = e.target.value; };
+    el.querySelectorAll("[data-tfs]").forEach(b => b.onclick = () => { store = b.dataset.tfs; draw(); });
+    const st = el.querySelector("#tf-store"); st.oninput = () => { store = st.value.trim() || "Agrohub"; el.querySelectorAll("[data-tfs]").forEach(x => x.setAttribute("aria-pressed", x.dataset.tfs === store && !st.value.trim() ? "true" : "false")); };
+    el.querySelectorAll("[data-tfday]").forEach(b => b.onclick = () => { const d = b.dataset.tfday; days.has(d) ? days.delete(d) : days.add(d); touched = true; draw(); });
+    const sk = el.querySelector("#tf-skip"); sk && (sk.onchange = () => { skip = sk.checked; draw(); });
+    el.querySelector("#tf").onsubmit = e => {
+      e.preventDefault();
+      time = el.querySelector("#tf-time").value || time; date = el.querySelector("#tf-date").value || date;
+      if (t && t.items && !t.isCopy){ saveTrip({...t, date, time, store}); toast("List updated"); openTrip(t.id); render(); return; }
+      const id = "t" + Date.now().toString(36);
+      const items = t?.isCopy ? t.items : aggItems(order.filter(d => days.has(d))).items.filter(it => !(skip && S.pantry.has(norm(it.item))));
+      saveTrip({id, store, date, time, days:t?.isCopy ? (t.days || []) : order.filter(d => days.has(d)), items, status:"planned", createdAt:new Date().toISOString()});
+      toast(`List for ${whenLabel({date, time})} created`); openTrip(id); render();
+    };
+  };
+  draw();
+}
+
+function openTrip(id, keep = false, mode = ""){
+  const t = S.trips.find(x => x.id === id); if (!t){ closeSheet(); return; }
+  const prevEl = root.querySelector(".sheet"); const sc = keep && prevEl ? prevEl.scrollTop : 0;
+  const items = t.items || [], n = items.length, got = items.filter(i => i.done).length, done = t.status === "done";
+  const row = ([it, idx]) => { const l = qtyLine(it); return `<div class="row srow ${it.done && !done ? "done" : ""}" ${done ? "" : `data-ti="${idx}" role="checkbox" aria-checked="${!!it.done}" tabindex="0"`}><span class="ck ${it.done ? "on" : ""}">${ic("check")}</span><span class="row-tx"><span class="nm" style="white-space:normal">${esc(l.t)}</span></span><span class="q">${esc(l.q)}</span>${done ? "" : `<button class="xbtn" data-tdel="${idx}" aria-label="Remove ${esc(it.item)}">${ic("x")}</button>`}</div>`; };
+  const grouped = list => { const g = {}; list.forEach(x => (g[x[0].cat || "Other"] = g[x[0].cat || "Other"] || []).push(x)); return CAT_ORDER.filter(c => g[c]).map(c => `<h3 class="shop-h">${c}</h3><div class="list">${g[c].sort((a, b) => a[0].item.localeCompare(b[0].item)).map(row).join("")}</div>`).join(""); };
+  const pairs = items.map((it, idx) => [it, idx]);
+  const head = `<div class="grab"></div><div class="sh-h"><div style="flex:1;min-width:0"><p class="kick">${esc(whenLabel(t))}</p><h2>${esc(t.store || "Shopping list")}</h2></div>${done || mode ? "" : `<button class="cbtn" id="t-edit" aria-label="Change day, time or shop">${ic("pencil")}</button>`}<button class="cbtn" data-close aria-label="Close">${ic("x")}</button></div>`;
+  let body = "", foot = "";
+  if (mode === "log"){
+    body = `<section class="card" style="padding:16px;display:grid;gap:16px">
+        <p style="margin:0;font-size:15px"><b>${got} of ${n}</b> items ticked.${n - got ? ` The other ${n - got} will be logged as not bought.` : " Everything on the list."}</p>
+        <div class="field"><label for="tl-spent">How much did you spend? (optional)</label><div class="money"><span>₾</span><input type="number" inputmode="decimal" step="0.01" min="0" id="tl-spent" placeholder="0.00"></div></div>
+        <label class="chk" style="margin:0"><input type="checkbox" id="tl-kitchen" checked> Add what I bought to my kitchen</label></section>
+      <div class="sh-actions"><button class="btn" id="tl-back">Back</button><button class="btn primary" id="tl-save">${ic("check")} Log shop</button></div>`;
+  } else if (done){
+    const lt = t.loggedAt ? new Date(t.loggedAt).toLocaleString("en-GB", {weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"}) : "";
+    const bought = pairs.filter(([it]) => it.done), missed = pairs.filter(([it]) => !it.done);
+    body = `<section class="card" style="padding:16px;display:grid;gap:6px"><span class="kick" style="color:var(--green)">Logged ${esc(lt)}</span><span class="big">${t.spent ? "₾" + fmtMoney(t.spent) : got + " items"}</span><span class="muted" style="font-size:14px">${got} of ${n} items bought${t.addedToKitchen ? " · added to your kitchen" : ""}</span></section>
+      ${bought.length ? `<p class="kick" style="margin:18px 4px 8px">Bought</p><div class="list">${bought.map(row).join("")}</div>` : ""}
+      ${missed.length ? `<p class="kick" style="margin:18px 4px 8px">Not bought</p><div class="list">${missed.map(row).join("")}</div>` : ""}
+      <div class="sh-actions"><button class="btn" id="t-again">${ic("shuffle")} Shop again</button><button class="btn danger" id="t-del">${ic("trash")} Delete</button></div>`;
+  } else {
+    body = `<section class="card prog" style="padding:14px 16px"><div class="prog-top"><span class="big">${got}<small> / ${n} in the basket</small></span>${got ? `<button class="txtbtn" id="t-reset" style="font-size:14px;min-height:0;padding:0">Untick all</button>` : ""}</div><div class="bar"><span style="width:${n ? (got/n*100).toFixed(0) : 0}%"></span></div></section>
+      ${n ? grouped(pairs) : `<div class="empty" style="margin-top:14px"><strong>Empty list</strong>Add items below.</div>`}
+      <form class="tadd" id="t-addf"><input type="text" id="t-addn" placeholder="Add an item" aria-label="Item to add" autocomplete="off"><input type="text" id="t-addq" placeholder="Amount" aria-label="Amount"><button class="btn" type="submit" aria-label="Add item">${ic("plus")}</button></form>
+      ${/agrohub/i.test(t.store || "") ? `<a class="vlink" href="${WOLT}" target="_blank" rel="noopener">Or order it from Agrohub on Wolt ${ic("arrow")}</a>` : ""}
+      <div class="sh-actions"><button class="btn danger" id="t-del">${ic("trash")} Delete list</button></div>`;
+    foot = `<div class="lsum"><button class="btn primary block" id="t-log">${ic("check")} Log this shop${n ? ` · ${got}/${n}` : ""}</button></div>`;
+  }
+  const el = sheet(`${head}<div class="sh-pad">${body}</div>${foot}`, "full");
+  el.scrollTop = sc; wireClose(el);
+  const again = () => { openTrip(id, true, mode); if (S.view === "shop" || S.view === "today") render(); };
+  const setItems = list => saveTrip({...t, items:list});
+  el.querySelectorAll("[data-ti]").forEach(r => {
+    const toggle = () => { const idx = +r.dataset.ti; setItems(items.map((it, i) => i === idx ? {...it, done:!it.done} : it)); again(); };
+    r.onclick = e => { if (!e.target.closest("[data-tdel]")) toggle(); };
+    r.onkeydown = e => { if (e.key === " " || e.key === "Enter"){ e.preventDefault(); toggle(); } };
+  });
+  el.querySelectorAll("[data-tdel]").forEach(b => b.onclick = e => { e.stopPropagation(); const idx = +b.dataset.tdel; setItems(items.filter((_, i) => i !== idx)); again(); });
+  const rs = el.querySelector("#t-reset"); rs && (rs.onclick = () => { setItems(items.map(it => ({...it, done:false}))); again(); });
+  const af = el.querySelector("#t-addf"); af && (af.onsubmit = e => {
+    e.preventDefault(); const name = el.querySelector("#t-addn").value.trim(); if (!name) return;
+    const cat = (CATS.find(([, re]) => re.test(name)) || ["Other"])[0];
+    setItems([...items, {key:"c" + Date.now().toString(36), item:name, qtext:el.querySelector("#t-addq").value.trim(), cat, done:false, custom:true}]);
+    again(); setTimeout(() => { const i = root.querySelector("#t-addn"); i && i.focus(); }, 50);
+  });
+  const ed = el.querySelector("#t-edit"); ed && (ed.onclick = () => openTripForm(t));
+  const lg = el.querySelector("#t-log"); lg && (lg.onclick = () => openTrip(id, false, "log"));
+  const bk = el.querySelector("#tl-back"); bk && (bk.onclick = () => openTrip(id));
+  const sv = el.querySelector("#tl-save"); sv && (sv.onclick = () => {
+    const sp = parseFloat(String(el.querySelector("#tl-spent").value).replace(",", "."));
+    const kitchen = el.querySelector("#tl-kitchen").checked;
+    if (kitchen){ items.filter(i => i.done).forEach(i => S.pantry.add(norm(i.item))); savePantry(); }
+    const now = new Date();
+    saveTrip({...t, status:"done", plannedDate:t.date, plannedTime:t.time, date:todayKey, time:pad(now.getHours()) + ":" + pad(now.getMinutes()), loggedAt:now.toISOString(), loggedDate:todayKey, spent:isNaN(sp) ? null : Math.round(sp * 100) / 100, addedToKitchen:kitchen});
+    toast(`Shop logged${isNaN(sp) ? "" : " · ₾" + fmtMoney(sp)}`); openTrip(id); render();
+  });
+  const ag = el.querySelector("#t-again"); ag && (ag.onclick = () => openTripForm({isCopy:true, store:t.store, days:t.days, items:items.map(it => ({...it, done:false}))}));
+  const dl = el.querySelector("#t-del"); dl && (dl.onclick = () => armed(dl, "Tap again to delete", () => { S.trips = S.trips.filter(x => x.id !== id); write("trips/" + id, null, "delete"); closeSheet(); toast("List deleted"); render(); }));
+}
+
 async function shrink(file){
   try {
     const img = await createImageBitmap(file); const s = Math.min(1, 1200 / Math.max(img.width, img.height));
@@ -1411,6 +1592,11 @@ setView(location.hash.slice(1) || "today");
   db.doc("plan/week").onSnapshot(snap => { if (busy("plan/week")) return; const v = snap.exists ? snap.data() : null; S.plan = v && v.days ? JSON.parse(JSON.stringify(v.days)) : {}; if (S.loaded) render(); }, () => {});
   db.doc("pantry/main").onSnapshot(snap => { if (busy("pantry/main")) return; S.pantry = new Set(snap.exists ? (snap.data().items || []) : []); if (S.loaded && S.view !== "today") render(); }, () => {});
   db.doc("log/" + todayKey).onSnapshot(snap => { if (busy("log/" + todayKey)) return; const v = snap.exists ? snap.data() : {}; S.log = {eaten:{...(v.eaten || {})}, extras:[...(v.extras || [])], water:v.water || 0}; if (S.loaded && S.view === "today") render(); }, () => {});
+  db.collection("trips").onSnapshot(snap => {
+    const remote = snap.docs.map(d => d.data()).filter(t => t && t.id).map(t => JSON.parse(JSON.stringify(t)));
+    S.trips = [...remote.filter(t => !busy("trips/" + t.id)), ...S.trips.filter(t => busy("trips/" + t.id))];
+    if (S.loaded && (S.view === "shop" || S.view === "today")) render();
+  }, () => {});
   db.doc("drinks/saved").onSnapshot(snap => { if (busy("drinks/saved")) return; S.drinks = snap.exists ? [...(snap.data().items || [])] : []; if (S.loaded && S.view === "today") render(); }, () => {});
   db.collection("weights").onSnapshot(snap => { S.weights = snap.docs.map(d => d.data()).filter(w => w && w.kg && w.date).sort((a, b) => a.date.localeCompare(b.date)); if (S.loaded && S.view === "today") render(); }, () => {});
 })();
