@@ -1,7 +1,7 @@
 {
   "name": "chamapp",
   "short_name": "chamapp",
-  "description": "Dima's meal planner: today's meals, recipes, the week's plan and a shopping list.",
+  "description": "Dima's diet app: food diary, recipes, meal plan, shopping lists and progress.",
   "start_url": "./#today",
   "scope": "./",
   "display": "standalone",
