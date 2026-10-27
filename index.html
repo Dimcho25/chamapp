@@ -516,6 +516,18 @@ input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;displa
 .wbig #st-n{width:180px}
 .hs.act strong{color:var(--green)}
 
+/* skip and own meals */
+.skipb{appearance:none;border:1px solid var(--line2);background:transparent;color:var(--tx2);border-radius:999px;padding:5px 11px;font-size:13px;font-weight:700;margin-right:8px}
+.skiprow{grid-template-columns:48px minmax(0,1fr) auto;opacity:.9}
+.skiprow .sk-ic{width:48px;height:48px;border-radius:14px;background:var(--s2);display:grid;place-items:center;font-size:22px}
+.minibtn.ghost{background:var(--s2);color:var(--tx)}
+.ownform{display:grid;gap:10px;padding:14px;margin-top:10px}
+.ownform[hidden]{display:none}
+.ownform .split{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.p-h{margin:14px 4px 8px}
+.skipbar{display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:12px}
+.skipbar .row-tx{flex:1}
+
 /* tab bar */
 .tabbar{position:fixed;z-index:40;left:max(14px,env(safe-area-inset-left,0px));right:max(14px,env(safe-area-inset-right,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px));max-width:430px;margin:0 auto;height:var(--tab-h);border-radius:33px;background:rgba(30,31,35,.74);-webkit-backdrop-filter:blur(26px) saturate(1.8);backdrop-filter:blur(26px) saturate(1.8);border:1px solid var(--line2);box-shadow:0 16px 40px rgba(0,0,0,.55);display:grid;grid-template-columns:repeat(5,minmax(0,1fr));align-items:center;padding:0 6px}
 .tb{appearance:none;border:0;background:none;color:var(--tx3);display:grid;justify-items:center;gap:3px;font-size:10.5px;font-weight:700;padding:8px 0;border-radius:20px;transition:color .15s}
@@ -798,7 +810,22 @@ function ingText(i){
 }
 const isBeef = r => (r?.ingredients || []).some(i => /beef|steak/i.test(i.item));
 const beefG = r => (r?.ingredients || []).filter(i => /beef|steak/i.test(i.item) && i.u === "g").reduce((s, i) => s + (i.q || 0), 0);
-const getRec = id => id === "out" ? OUT : S.recipes[id];
+// A planned meal can also be any food from the database ("food:<name>"), one of "My foods" ("my:<name>")
+// or something typed in by hand ("own:<json>").
+const ownCache = new Map();
+function getRec(id){
+  if (!id) return undefined;
+  if (id === "out") return OUT;
+  if (S.recipes[id]) return S.recipes[id];
+  if (ownCache.has(id)) return ownCache.get(id);
+  let r;
+  if (id.startsWith("food:")){ const n = id.slice(5), f = FOODS[n]; if (f){ const p = f.por[0]; r = {id, name:capital(n), kcal:Math.round(f.n[0] * p[1] / 100), protein:Math.round(f.n[1] * p[1] / 100), ingredients:[{item:n, q:p[1], u:"g"}], meal:"any", emoji:foodEmoji(n, f.c), portion:p[0], loose:true}; } }
+  else if (id.startsWith("my:")){ const c = S.customFoods.find(x => x.name === id.slice(3)); if (c) r = {id, name:c.name, kcal:Math.round(c.kcal), protein:Math.round(c.p || 0), ingredients:[], meal:"any", emoji:"⭐", portion:c.serving || "1 serving", loose:true}; }
+  else if (id.startsWith("own:")){ try { const o = JSON.parse(id.slice(4)); r = {id, name:o.n, kcal:Math.round(o.k || 0), protein:Math.round(o.p || 0), ingredients:[], meal:"any", emoji:matchFoodEmoji(o.n) || "🍽️", portion:"your own", loose:true}; } catch {} }
+  if (r && !id.startsWith("my:")) ownCache.set(id, r);
+  return r;
+}
+const isRecipe = id => !!(id && S.recipes[id]);
 function gramsOf(i, q = i.q){
   const f = FOODS[norm(i.item)]; if (!f || q == null || isNaN(q)) return null;
   if (UG[i.u]) return q * UG[i.u];
@@ -911,7 +938,7 @@ const hasRecipes = () => Object.keys(S.recipes).length > 0;
 // ---------- LOG (food diary data) ----------
 // Each day is log/{YYYY-MM-DD} = {entries:[...], water}. Older days stored {eaten, extras}; they are read into entries.
 function readLog(v, d){
-  const act = {steps:v && v.steps || 0, acts:(v && v.acts || []).map(a => ({...a}))};
+  const act = {steps:v && v.steps || 0, acts:(v && v.acts || []).map(a => ({...a})), skipped:(v && v.skipped || []).slice()};
   if (!v) return {entries:[], water:0, ...act};
   if (Array.isArray(v.entries)) return {entries:v.entries.map(e => ({...e})), water:v.water || 0, ...act};
   const entries = [], wd = WD[keyDate(d).getDay()];
@@ -927,10 +954,15 @@ function readLog(v, d){
   return {entries, water:v.water || 0, ...act};
 }
 function rebuildLogs(){ for (const [d, v] of Object.entries(S.rawLogs)) if (!busy("log/" + d)) S.logs[d] = readLog(v, d); }
-const dayLog = d => S.logs[d] || (S.logs[d] = {entries:[], water:0, steps:0, acts:[]});
-function saveDay(d){ const L = dayLog(d); render(); write("log/" + d, {date:d, entries:L.entries, water:L.water || 0, steps:L.steps || 0, acts:L.acts || []}); }
+const dayLog = d => S.logs[d] || (S.logs[d] = {entries:[], water:0, steps:0, acts:[], skipped:[]});
+function saveDay(d){ const L = dayLog(d); render(); write("log/" + d, {date:d, entries:L.entries, water:L.water || 0, steps:L.steps || 0, acts:L.acts || [], skipped:L.skipped || []}); }
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-function addEntry(d, e){ const L = dayLog(d), id = newId(); L.entries = [...L.entries, {...e, id, at:Date.now()}]; saveDay(d); return id; }
+function addEntry(d, e){ const L = dayLog(d), id = newId(); L.entries = [...L.entries, {...e, id, at:Date.now()}]; if ((L.skipped || []).includes(e.meal)) L.skipped = L.skipped.filter(x => x !== e.meal); saveDay(d); return id; }
+const isSkipped = (d, meal) => (S.logs[d]?.skipped || []).includes(meal);
+function skipMeal(d, meal, on = true){
+  const L = dayLog(d); L.skipped = on ? [...new Set([...(L.skipped || []), meal])] : (L.skipped || []).filter(x => x !== meal); saveDay(d);
+  if (on) toast(`Skipped ${DIARY[meal][0].toLowerCase()}`, {label:"Undo", fn:() => skipMeal(d, meal, false)});
+}
 function replaceEntry(d, id, patch){ const L = dayLog(d); L.entries = L.entries.map(x => x.id === id ? {...x, ...patch, id} : x); saveDay(d); }
 function removeEntry(d, id, quiet = false){
   const L = dayLog(d), e = L.entries.find(x => x.id === id); if (!e) return;
@@ -1008,7 +1040,7 @@ function renderToday(){
   if (!hasRecipes() && !L.entries.length){ view.innerHTML = head + emptyState(); wireTodayHead(); return; }
   const A = activity(d), budget = GOAL + A.earned;
   const left = budget - t.k, over = left < 0, frac = Math.min(t.k / Math.max(budget, 1), 1), R = 62, C = 2 * Math.PI * R;
-  const plannedK = MEALS.reduce((s, m) => { const r = getRec((S.plan[wd] || {})[m.key]); return s + (r ? r.kcal : 0); }, 0);
+  const plannedK = MEALS.reduce((s, m) => { if (isSkipped(d, m.key)) return s; const r = getRec((S.plan[wd] || {})[m.key]); return s + (r ? r.kcal : 0); }, 0);
   const summary = `<section class="card sum2" aria-label="Calories and macros">
     <div class="ring2"><svg viewBox="0 0 150 150" aria-hidden="true"><defs><linearGradient id="tg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#30d158"/><stop offset="1" stop-color="#b6f23a"/></linearGradient><linearGradient id="tr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff375f"/><stop offset="1" stop-color="#ff9f0a"/></linearGradient></defs>
       <circle cx="75" cy="75" r="${R}" fill="none" stroke="var(--s3)" stroke-width="13"/><circle cx="75" cy="75" r="${R}" fill="none" stroke="url(#${t.k > HIGH + A.earned ? "tr" : "tg"})" stroke-width="13" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - frac)).toFixed(1)}" transform="rotate(-90 75 75)" opacity="${frac > 0 ? 1 : 0}"/></svg>
@@ -1018,12 +1050,12 @@ function renderToday(){
   </section>`;
   let next = "";
   if (isToday){
-    const nm = MEALS.find(m => !L.entries.some(e => e.meal === m.key));
+    const nm = MEALS.find(m => !L.entries.some(e => e.meal === m.key) && !isSkipped(d, m.key));
     const r = nm && getRec((S.plan[wd] || {})[nm.key]);
     if (r) next = `<section class="card next m-${nm.key}">
-        ${r.id !== "out" ? `<button class="next-tile" data-open="${esc(r.id)}" aria-label="Open ${esc(r.name)}">${tile(r, "md")}</button>` : tile(r, "md")}
-        <div style="min-width:0"><p class="kick">Up next · ${DIARY[nm.key][0]} · ${DIARY[nm.key][1]}</p><h3>${esc(r.name)}</h3><p class="muted num" style="margin:0">${fmt(r.kcal)} kcal · ${fmt(r.protein)} g protein</p></div>
-        <div class="next-act"><button class="btn primary" data-log="${nm.key}">${ic("check")} Log it</button><button class="btn" data-pick="${wd}|${nm.key}">${ic("swap")} Swap</button>${r.id !== "out" ? `<button class="btn" data-open="${esc(r.id)}">Recipe</button>` : ""}</div>
+        ${isRecipe(r.id) ? `<button class="next-tile" data-open="${esc(r.id)}" aria-label="Open ${esc(r.name)}">${tile(r, "md")}</button>` : tile(r, "md")}
+        <div style="min-width:0"><p class="kick">Up next · ${DIARY[nm.key][0]} · ${DIARY[nm.key][1]}</p><h3>${esc(r.name)}</h3><p class="muted num" style="margin:0">${fmt(r.kcal)} kcal${r.protein ? ` · ${fmt(r.protein)} g protein` : ""}</p></div>
+        <div class="next-act"><button class="btn primary" data-log="${nm.key}">${ic("check")} Log it</button><button class="btn" data-pick="${wd}|${nm.key}|${d}">${ic("swap")} Swap</button>${nm.key !== "bedtime" ? `<button class="btn" data-skip="${nm.key}">Skip</button>` : ""}</div>
       </section>`;
   }
   const soon = isToday ? S.trips.filter(x => x.status !== "done" && x.date <= addDays(todayKey, 1)).sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")))[0] : null;
@@ -1032,8 +1064,11 @@ function renderToday(){
     const es = L.entries.filter(e => e.meal === m.key).sort((a, b) => (a.at || 0) - (b.at || 0));
     const planned = getRec((S.plan[wd] || {})[m.key]);
     const sum = es.reduce((s, e) => s + (e.kcal || 0), 0);
-    const sug = planned && !es.some(e => e.kind === "recipe") ? `<div class="row srow2"><button class="row-main" ${planned.id !== "out" ? `data-open="${esc(planned.id)}"` : `data-pick="${wd}|${m.key}"`}>${tile(planned, "sm")}<span class="row-tx"><span class="ml" style="color:var(--tx3)">Planned</span><span class="nm">${esc(planned.name)}</span><span class="sub num">${fmt(planned.kcal)} kcal</span></span></button><button class="swapb" data-pick="${wd}|${m.key}" aria-label="Swap planned ${DIARY[m.key][0].toLowerCase()}">${ic("swap")}</button><button class="minibtn" data-log="${m.key}">Log</button></div>` : "";
-    return `<section class="card msec m-${m.key}"><div class="msec-h"><span class="mdot"></span><h3>${DIARY[m.key][0]}</h3><span class="msec-time">${DIARY[m.key][1]}</span><span class="sp"></span>${sum ? `<span class="kc">${fmt(sum)}</span>` : ""}<button class="addb" data-add="${m.key}" aria-label="Add food to ${DIARY[m.key][0].toLowerCase()}">${ic("plus")}</button></div>${es.map(entryRow).join("")}${sug}${!es.length && !sug ? `<button class="row empty-row" data-add="${m.key}"><span class="muted">${ic("plus")} Add food</span></button>` : ""}</section>`;
+    const skipped = isSkipped(d, m.key);
+    const sug = planned && !skipped && !es.some(e => e.kind === "recipe") ? `<div class="row srow2"><button class="row-main" ${isRecipe(planned.id) ? `data-open="${esc(planned.id)}"` : `data-pick="${wd}|${m.key}|${d}"`}>${tile(planned, "sm")}<span class="row-tx"><span class="ml" style="color:var(--tx3)">Planned</span><span class="nm">${esc(planned.name)}</span><span class="sub num">${fmt(planned.kcal)} kcal</span></span></button><button class="swapb" data-pick="${wd}|${m.key}|${d}" aria-label="Swap planned ${DIARY[m.key][0].toLowerCase()}">${ic("swap")}</button><button class="minibtn" data-log="${m.key}">Log</button></div>` : "";
+    const skipRow = skipped ? `<div class="row skiprow"><span class="sk-ic" aria-hidden="true">⏭️</span><span class="row-tx"><span class="nm">Skipped</span><span class="sub">Not counted in planned calories</span></span><button class="minibtn ghost" data-unskip="${m.key}">Undo</button></div>` : "";
+    const canSkip = m.key !== "bedtime" && !es.length && !skipped;
+    return `<section class="card msec m-${m.key}"><div class="msec-h"><span class="mdot"></span><h3>${DIARY[m.key][0]}</h3><span class="msec-time">${DIARY[m.key][1]}</span><span class="sp"></span>${sum ? `<span class="kc">${fmt(sum)}</span>` : ""}${canSkip ? `<button class="skipb" data-skip="${m.key}" aria-label="Skip ${DIARY[m.key][0].toLowerCase()}">Skip</button>` : ""}<button class="addb" data-add="${m.key}" aria-label="Add food to ${DIARY[m.key][0].toLowerCase()}">${ic("plus")}</button></div>${es.map(entryRow).join("")}${skipRow}${sug}${!es.length && !sug && !skipped ? `<button class="row empty-row" data-add="${m.key}"><span class="muted">${ic("plus")} Add food</span></button>` : ""}</section>`;
   }).join("");
   const qc = quickChips();
   const quickRow = `<div class="sec"><h2>Quick add</h2><span>One tap logs it again</span></div><div class="hscroll">
@@ -1066,7 +1101,9 @@ function renderToday(){
   const meal0 = isToday ? autoMeal() : "bedtime";
   view.querySelectorAll("[data-log]").forEach(b => b.onclick = () => openLogMeal(b.dataset.log));
   view.querySelectorAll("[data-open]").forEach(b => b.onclick = () => openRecipe(b.dataset.open));
-  view.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { const [dd, m] = b.dataset.pick.split("|"); openPicker(dd, m); });
+  view.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { const [dd, m, date] = b.dataset.pick.split("|"); openPicker(dd, m, date || null); });
+  view.querySelectorAll("[data-skip]").forEach(b => b.onclick = () => skipMeal(d, b.dataset.skip));
+  view.querySelectorAll("[data-unskip]").forEach(b => b.onclick = () => skipMeal(d, b.dataset.unskip, false));
   view.querySelectorAll("[data-add]").forEach(b => b.onclick = () => openAddFood(b.dataset.add, d));
   view.querySelectorAll("[data-entry]").forEach(b => b.onclick = () => openEntry(b.dataset.entry, d));
   view.querySelectorAll("[data-trip]").forEach(b => b.onclick = () => openTrip(b.dataset.trip));
@@ -1486,7 +1523,7 @@ function openLogMeal(k, entryId = null, d = S.day){
       ${showAdd ? `<div class="card addpanel"><input type="search" id="l-q" placeholder="Search: fries, cheese, egg…" value="${esc(q)}" autocomplete="off" aria-label="Search ingredients"><div class="list" id="l-list">${matches()}</div>
           <div class="split"><input type="text" id="l-cn" placeholder="Something else" aria-label="Custom item name"><input type="number" id="l-ck" inputmode="numeric" placeholder="kcal" aria-label="Custom item calories"></div><button class="btn" id="l-cadd">Add custom item</button></div>`
         : `<button class="btn block" id="l-add" style="margin-top:10px">${ic("plus")} Add an ingredient</button>`}
-      <div class="sh-actions"><button class="btn" id="l-swap">${ic("swap")} Swap dish</button>${prev ? `<button class="btn danger" id="l-undo">Remove</button>` : ""}</div>
+      <div class="sh-actions"><button class="btn" id="l-swap">${ic("swap")} Swap</button>${prev ? `<button class="btn danger" id="l-undo">Remove</button>` : k !== "bedtime" ? `<button class="btn" id="l-skip">Skip this meal</button>` : ""}</div>
     </div>
     <div class="lsum"><div class="tot"><span>${c.note ? "With your changes" : "As planned"}</span><span><b class="num">${fmt(c.kcal)}</b> kcal · ${fmt(c.p)} g protein</span></div><button class="btn primary block" id="l-save">${ic("check")} ${prev ? "Save changes" : "Log " + DIARY[k][0].toLowerCase()}</button></div>`);
     el.scrollTop = sc; wireClose(el);
@@ -1500,7 +1537,8 @@ function openLogMeal(k, entryId = null, d = S.day){
     wireMatches();
     const lq = el.querySelector("#l-q"); lq && (lq.oninput = () => { q = lq.value; el.querySelector("#l-list").innerHTML = matches(); wireMatches(); });
     const lc = el.querySelector("#l-cadd"); lc && (lc.onclick = () => { const n = el.querySelector("#l-cn").value.trim(), kc = Number(el.querySelector("#l-ck").value); if (!n || !(kc > 0)){ toast("Add a name and its calories"); return; } added.push({item:n, kcal:Math.round(kc), p:0, c:0, f:0, custom:true}); showAdd = false; q = ""; draw(); });
-    el.querySelector("#l-swap").onclick = () => openPicker(wd, k);
+    el.querySelector("#l-swap").onclick = () => openPicker(wd, k, d);
+    const lsk = el.querySelector("#l-skip"); lsk && (lsk.onclick = () => { closeSheet(); skipMeal(d, k); });
     const lu = el.querySelector("#l-undo"); lu && (lu.onclick = () => { closeSheet(); removeEntry(d, prev.id); });
     el.querySelector("#l-save").onclick = () => {
       const c2 = calc(), amts = {};
@@ -1610,7 +1648,7 @@ function searchFoods(q){
 function recentKeys(){
   const all = Object.values(S.logs).flatMap(L => L.entries).filter(e => e.at && ["food", "recipe", "custom"].includes(e.kind)).sort((a, b) => b.at - a.at);
   const seen = new Set(), out = [];
-  for (const e of all){ const key = (e.kind === "recipe" ? "r:" : e.kind === "custom" ? "c:" : "f:") + e.ref; if (seen.has(key)) continue; seen.add(key); out.push({key, e}); if (out.length >= 20) break; }
+  for (const e of all){ if (e.kind === "recipe" && !S.recipes[e.ref]) continue; const key = (e.kind === "recipe" ? "r:" : e.kind === "custom" ? "c:" : "f:") + e.ref; if (seen.has(key)) continue; seen.add(key); out.push({key, e}); if (out.length >= 20) break; }
   return out;
 }
 const starIcon = on => `<svg class="ic" viewBox="0 0 24 24" fill="${on ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="${STAR}"/></svg>`;
@@ -2056,23 +2094,48 @@ async function uploadPhoto(r, file){
   } catch(e){ toast(e?.code === "too_large" ? "That photo is too big. Try a smaller one." : e?.code === "quota_or_state" ? "Photo storage is full" : "Couldn't upload the photo"); }
 }
 
-function openPicker(day, meal){
+function openPicker(day, meal, date = null){
   const m = mealOf(meal); const cur = (S.plan[day] || {})[meal] || ""; const curR = getRec(cur);
+  const dLab = date ? (date === todayKey ? "today" : keyDate(date).toLocaleDateString("en-GB", {weekday:"long"})) : "";
   let all = sorted(meal);
   if (curR && curR.kcal) all = all.slice().sort((a, b) => (a.id === cur) - (b.id === cur) || Math.abs(a.kcal - curR.kcal) - Math.abs(b.kcal - curR.kcal));
   const rowHtml = r => { const d = curR && r.id !== cur ? r.kcal - curR.kcal : null; return `<button class="row pick ${r.id === cur ? "sel" : ""}" data-choose="${esc(r.id)}">${tile(r, "sm")}<span class="row-tx"><span class="nm">${esc(r.name)}</span><span class="sub num">${fmt(r.kcal)} kcal · ${fmt(r.protein)} g protein${isBeef(r) ? ` · ${fmt(beefG(r))} g beef` : ""}</span></span>${r.id === cur ? ic("check", "sel-ic") : d != null ? `<span class="diff num">${d === 0 ? "same" : (d > 0 ? "+" : "−") + Math.abs(d)}</span>` : r.rating ? `<span class="stars">${stars(r.rating)}</span>` : ""}</button>`; };
   const rows = all.map(rowHtml).join("");
+  const foodRows = q => searchFoods(q).filter(k => k.startsWith("f:") || k.startsWith("c:")).slice(0, 12).map(k => { const id = (k.startsWith("f:") ? "food:" : "my:") + k.slice(2), r = getRec(id); if (!r) return ""; const d = curR && id !== cur ? r.kcal - curR.kcal : null;
+    return `<button class="row pick ${id === cur ? "sel" : ""}" data-choose="${esc(id)}">${tile(r, "sm")}<span class="row-tx"><span class="nm">${esc(r.name)}</span><span class="sub num">${esc(r.portion)} · ${fmt(r.kcal)} kcal</span></span>${id === cur ? ic("check", "sel-ic") : d != null ? `<span class="diff num">${d === 0 ? "same" : (d > 0 ? "+" : "−") + Math.abs(d)}</span>` : ""}</button>`; }).join("");
   const out = meal === "lunch" || meal === "dinner" ? `<div class="list" style="margin-top:10px"><button class="row pick ${cur === "out" ? "sel" : ""}" data-choose="out">${tile(OUT, "sm")}<span class="row-tx"><span class="nm">Eating out</span><span class="sub">Counts as about 650 kcal</span></span>${cur === "out" ? ic("check", "sel-ic") : ""}</button></div>` : "";
-  const el = sheet(`${sheetHead((cur ? "Swap " : "Choose ") + m.label.toLowerCase(), day === todayDay ? "Today" : dayName(day))}<div class="sh-pad">
-    ${curR && cur !== "out" ? `<p class="muted" style="margin:0 0 10px;font-size:14px">Closest in calories to ${esc(curR.name)} first.</p>` : ""}
-    <div class="search" style="margin-bottom:10px">${ic("search")}<input type="search" id="p-q" placeholder="Search ${all.length} ${m.label.toLowerCase()} dishes" autocomplete="off" aria-label="Search dishes"></div>
-    <div class="list" id="p-list">${rows || `<div class="row"><span></span><span class="muted">No ${m.label.toLowerCase()} recipes yet</span></div>`}</div>${out}
-    ${cur ? `<div class="sh-actions">${cur !== "out" ? `<button class="btn" id="p-view">View recipe</button>` : ""}<button class="btn danger" id="p-clear">Clear this meal</button></div>` : ""}</div>`);
+  const own = cur.startsWith("own:") ? curR : null, ownDef = own || {name:"", kcal:"", protein:""};
+  const skipped = date && isSkipped(date, meal);
+  const el = sheet(`${sheetHead((cur ? "Swap " : "Choose ") + m.label.toLowerCase(), date ? capital(dLab) : day === todayDay ? "Today" : dayName(day))}<div class="sh-pad">
+    ${date && meal !== "bedtime" ? `<div class="card skipbar"><span class="row-tx"><span class="nm">${skipped ? `Skipped ${esc(dLab)}` : `Not eating ${m.label.toLowerCase()} ${esc(dLab)}?`}</span><span class="sub">${skipped ? "Undo to plan it again" : "It won't count in planned calories"}</span></span><button class="btn" id="p-skip">${skipped ? "Undo skip" : "Skip"}</button></div>` : ""}
+    <div class="search" style="margin-bottom:10px">${ic("search")}<input type="search" id="p-q" placeholder="Search dishes or any food" autocomplete="off" aria-label="Search dishes and foods"></div>
+    ${curR && cur !== "out" ? `<p class="muted" id="p-hint" style="margin:0 4px 10px;font-size:14px">Recipes closest in calories to ${esc(curR.name)} first. Type above to search all foods too.</p>` : `<p class="muted" id="p-hint" style="margin:0 4px 10px;font-size:14px">Type above to search recipes and all ${FOOD_NAMES.length} foods.</p>`}
+    <div id="p-res"><div class="list" id="p-list">${rows || `<div class="row" style="grid-template-columns:1fr"><span class="muted">No ${m.label.toLowerCase()} recipes yet</span></div>`}</div></div>
+    <div class="list" style="margin-top:10px"><button class="row arow" id="p-own">${ic("pencil")}<span class="nm">${own ? `Your own: ${esc(own.name)}` : "Type your own meal"}</span>${ic("right", "chev")}</button></div>
+    <form class="card ownform" id="p-ownf" novalidate hidden>
+      <div class="field" style="margin:0"><label for="po-n">What are you having?</label><input type="text" id="po-n" placeholder="Mtsvadi with lavash" value="${esc(ownDef.name)}" autocomplete="off"></div>
+      <div class="split"><div class="field" style="margin:0"><label for="po-k">Calories</label><input type="number" id="po-k" inputmode="numeric" placeholder="600" value="${ownDef.kcal || ""}"></div><div class="field" style="margin:0"><label for="po-p">Protein (g)</label><input type="number" id="po-p" inputmode="numeric" placeholder="optional" value="${ownDef.protein || ""}"></div></div>
+      <button class="btn primary block" type="submit">${ic("check")} Use for ${m.label.toLowerCase()}</button>
+    </form>${out}
+    ${cur ? `<div class="sh-actions">${isRecipe(cur) ? `<button class="btn" id="p-view">View recipe</button>` : ""}<button class="btn danger" id="p-clear">Clear this meal</button></div>` : ""}</div>`);
   wireClose(el);
-  const choose = id => { const p = clonePlan(); p[day] = {...(p[day] || {}), [meal]:id}; savePlan(p); closeSheet(); const nr = getRec(id); toast(`${day === todayDay ? "Today's" : dayName(day)} ${m.label.toLowerCase()}: ${nr ? nr.name : "updated"}`); };
+  const choose = id => { const p = clonePlan(); p[day] = {...(p[day] || {}), [meal]:id}; savePlan(p); closeSheet(); const nr = getRec(id); if (date && isSkipped(date, meal)) skipMeal(date, meal, false); toast(`${day === todayDay ? "Today's" : dayName(day)} ${m.label.toLowerCase()}: ${nr ? nr.name : "updated"}`); };
   const wireChoose = () => el.querySelectorAll("[data-choose]").forEach(b => b.onclick = () => choose(b.dataset.choose));
   wireChoose();
-  const pq = el.querySelector("#p-q"); pq.oninput = () => { const t = norm(pq.value); const list = all.filter(r => !t || norm(r.name).includes(t) || (r.ingredients || []).some(i => norm(i.item).includes(t))); el.querySelector("#p-list").innerHTML = list.map(rowHtml).join("") || `<div class="row" style="grid-template-columns:1fr"><span class="muted">No dish matches “${esc(pq.value)}”</span></div>`; wireChoose(); };
+  const pq = el.querySelector("#p-q"); pq.oninput = () => {
+    const t = norm(pq.value), list = all.filter(r => !t || norm(r.name).includes(t) || (r.ingredients || []).some(i => norm(i.item).includes(t)));
+    const fr = t ? foodRows(pq.value) : "";
+    el.querySelector("#p-hint").hidden = !!t;
+    el.querySelector("#p-res").innerHTML = !t ? `<div class="list" id="p-list">${rows}</div>`
+      : `${list.length ? `<p class="kick p-h">Recipes</p><div class="list">${list.map(rowHtml).join("")}</div>` : ""}${fr ? `<p class="kick p-h">Foods</p><div class="list">${fr}</div>` : ""}${!list.length && !fr ? `<div class="list"><div class="row" style="grid-template-columns:1fr"><span class="muted">Nothing matches “${esc(pq.value)}”. Type it in as your own meal below.</span></div></div>` : ""}`;
+    wireChoose();
+  };
+  const of = el.querySelector("#p-ownf");
+  el.querySelector("#p-own").onclick = () => { of.hidden = !of.hidden; if (!of.hidden){ const n = of.querySelector("#po-n"); if (!n.value && pq.value.trim()) n.value = capital(pq.value.trim()); setTimeout(() => { try { of.scrollIntoView({block:"center", behavior:"smooth"}); (n.value ? of.querySelector("#po-k") : n).focus({preventScroll:true}); } catch {} }, 60); } };
+  of.onsubmit = ev => { ev.preventDefault(); const n = of.querySelector("#po-n").value.trim(), k = Math.round(Number(of.querySelector("#po-k").value)), pr = Math.round(Number(of.querySelector("#po-p").value) || 0);
+    if (!n){ toast("Give it a name"); return; } if (!(k > 0 && k < 5000)){ toast("Add about how many calories"); return; }
+    choose("own:" + JSON.stringify({n, k, p:pr})); };
+  const psk = el.querySelector("#p-skip"); psk && (psk.onclick = () => { closeSheet(); skipMeal(date, meal, !skipped); });
   const pv = el.querySelector("#p-view"); pv && (pv.onclick = () => openRecipe(cur));
   const pc = el.querySelector("#p-clear"); pc && (pc.onclick = () => { const p = clonePlan(); p[day] = {...(p[day] || {}), [meal]:""}; savePlan(p); closeSheet(); });
 }
