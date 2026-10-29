@@ -553,6 +553,11 @@ input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;displa
 .mhint{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 2px 0;font-size:13.5px;color:var(--tx2)}
 .mhint .minibtn{flex:0 0 auto}
 
+/* my meals */
+.qchip.mine{border-color:rgba(255,204,0,.35)}
+.qchip .e{font-size:15px;line-height:1}
+.chip.minechip .ic{color:var(--amber)}
+
 /* tab bar */
 .tabbar{position:fixed;z-index:40;left:max(14px,env(safe-area-inset-left,0px));right:max(14px,env(safe-area-inset-right,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px));max-width:430px;margin:0 auto;height:var(--tab-h);border-radius:33px;background:rgba(30,31,35,.74);-webkit-backdrop-filter:blur(26px) saturate(1.8);backdrop-filter:blur(26px) saturate(1.8);border:1px solid var(--line2);box-shadow:0 16px 40px rgba(0,0,0,.55);display:grid;grid-template-columns:repeat(5,minmax(0,1fr));align-items:center;padding:0 6px}
 .tb{appearance:none;border:0;background:none;color:var(--tx3);display:grid;justify-items:center;gap:3px;font-size:10.5px;font-weight:700;padding:8px 0;border-radius:20px;transition:color .15s}
@@ -721,6 +726,7 @@ const ICONS = {
   arrow:'<path d="M7 17 17 7M8.5 7H17v8.5"/>',
   basket:'<path d="M3.5 9.5h17l-1.6 9.4a1.5 1.5 0 0 1-1.5 1.1H6.6a1.5 1.5 0 0 1-1.5-1.1z"/><path d="m8 9.5 3-6M16 9.5l-3-6M9 13.5v3M15 13.5v3"/>',
   gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  star:'<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8-4.3-4.1 5.9-.9z"/>',
   steps:'<path d="M8.5 3.5c1.6 0 2.4 1.8 2.4 3.9s-.9 3.9-2.4 3.9S6 9.5 6 7.4s.9-3.9 2.5-3.9z"/><path d="M6.3 14h4.4v2.4a2.2 2.2 0 0 1-4.4 0z"/><path d="M15.5 7.5c1.6 0 2.5 1.8 2.5 3.9s-.9 3.9-2.5 3.9-2.4-1.8-2.4-3.9.8-3.9 2.4-3.9z"/><path d="M13.3 18h4.4v.4a2.2 2.2 0 0 1-4.4 0z"/>',
   trend:'<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
   scale:'<rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M8.5 9.5a5 5 0 0 1 7 0"/><path d="m12 12 1.5-2.5"/>',
@@ -862,6 +868,25 @@ function getRec(id){
   return r;
 }
 const isRecipe = id => !!(id && S.recipes[id]);
+const isMine = r => !!(r && (r.mine || r.order === 900));
+const myMeals = () => Object.values(S.recipes).filter(isMine).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0) || a.name.localeCompare(b.name));
+const slugId = name => (String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "meal") + "-" + Math.random().toString(36).slice(2, 6);
+// Save something you logged as one of "My meals", so it's in the recipe list and one tap away next time.
+async function saveMyMeal(src){
+  if (!S.db) { toast("Open this in Claude to save meals"); return null; }
+  const same = myMeals().find(r => norm(r.name) === norm(src.name));
+  const id = same ? same.id : slugId(src.name);
+  const keep = (v, old) => Math.round(v != null ? v : (old ?? 0));
+  const body = {...(same || {}), id, name:same ? same.name : src.name, meal:src.meal || same?.meal || "bedtime", kcal:Math.round(src.kcal || 0), protein:keep(src.p, same?.protein), c:keep(src.c, same?.c), f:keep(src.f, same?.f),
+    ingredients:src.ingredients || same?.ingredients || [], steps:same?.steps || "", order:900, mine:true, createdAt:same?.createdAt || Date.now(), emoji:src.emoji || same?.emoji || matchFoodEmoji(src.name) || "⭐"};
+  try { await S.db.doc("recipes/" + id).set(body); S.recipes[id] = body; render(); return {id, updated:!!same}; }
+  catch { toast("Couldn't save the meal"); return null; }
+}
+function logMyMeal(r, meal, d = S.day){
+  const m = recipeMacros(r);
+  const id = addEntry(d, {meal, kind:"recipe", ref:r.id, name:r.name, amount:"1 serving", note:"", kcal:r.kcal, p:m.p, c:m.c, f:m.f, emoji:emojiOf(r)});
+  toast(`Logged ${r.name} · ${fmt(r.kcal)} kcal`, {label:"Undo", fn:() => removeEntry(d, id, true)});
+}
 function gramsOf(i, q = i.q){
   const f = FOODS[norm(i.item)]; if (!f || q == null || isNaN(q)) return null;
   if (UG[i.u]) return q * UG[i.u];
@@ -875,6 +900,7 @@ function nutrOf(i, q = i.q){ return macrosOfGrams(i.item, gramsOf(i, q)); }
 const macroCache = new Map();
 function recipeMacros(r){
   if (!r) return {k:0, p:0, c:0, f:0};
+  if (r.c != null && r.f != null) return {k:r.kcal, p:r.protein || 0, c:r.c, f:r.f};
   const key = (r.id || r.name) + "|" + r.kcal + "|" + JSON.stringify(r.ingredients || []).length;
   if (macroCache.has(key)) return macroCache.get(key);
   let k = 0, c = 0, f = 0;
@@ -1110,6 +1136,7 @@ function renderToday(){
   const quickRow = `<div class="sec"><h2>Quick add</h2><span>One tap logs it again</span></div><div class="hscroll">
     <button class="qchip" id="x-food">${ic("search")}<span class="t">Search food</span></button>
     <button class="qchip drink" id="x-drink">${ic("cup")}<span class="t">Drink</span></button>
+    ${myMeals().slice(0, 8).map(r => `<button class="qchip mine" data-mymeal="${esc(r.id)}"><span class="e" aria-hidden="true">${emojiOf(r)}</span><span class="t">${esc(r.name)}</span> <b>${fmt(r.kcal)}</b></button>`).join("")}
     ${S.drinks.map((x, i) => `<button class="qchip drink" data-sdrink="${i}">${ic("plus")}<span class="t">${esc(x.name)}</span> <b>${fmt(x.kcal)}</b></button>`).join("")}
     ${qc.map((e, i) => `<button class="qchip" data-again="${i}">${ic("plus")}<span class="t">${esc(e.name)}</span> <b>${fmt(e.kcal)}</b></button>`).join("")}
     <button class="qchip" id="x-quick">${ic("bolt")}<span class="t">Quick calories</span></button></div>`;
@@ -1147,6 +1174,7 @@ function renderToday(){
   view.querySelector("#x-drink").onclick = () => openDrink(meal0, d);
   view.querySelector("#x-quick").onclick = () => openAddFood(meal0, d, {quick:true});
   view.querySelectorAll("[data-sdrink]").forEach(b => b.onclick = () => { const x = S.drinks[+b.dataset.sdrink]; if (!x) return; const id = addEntry(d, {meal:meal0, kind:"drink", name:x.name, kcal:x.kcal, p:x.protein || 0, c:x.c || 0, f:x.f || 0, emoji:x.emoji || "☕"}); toast(`Logged ${x.name.split(" · ")[0]}`, {label:"Undo", fn:() => removeEntry(d, id, true)}); });
+  view.querySelectorAll("[data-mymeal]").forEach(b => b.onclick = () => { const r = S.recipes[b.dataset.mymeal]; if (r) logMyMeal(r, isToday ? autoMeal() : (r.meal || "bedtime"), d); });
   view.querySelectorAll("[data-again]").forEach(b => b.onclick = () => { const e = qc[+b.dataset.again]; if (!e) return; const {id, at, ...rest} = e; const nid = addEntry(d, {...rest, meal:isToday ? autoMeal() : e.meal}); toast(`Logged ${e.name}`, {label:"Undo", fn:() => removeEntry(d, nid, true)}); });
   view.querySelectorAll("[data-water]").forEach(b => b.onclick = () => { const n = +b.dataset.water, L2 = dayLog(d); L2.water = L2.water === n ? n - 1 : n; saveDay(d); });
   view.querySelector("#w-plus").onclick = () => { const L2 = dayLog(d); L2.water = (L2.water || 0) + 1; saveDay(d); };
@@ -1174,14 +1202,16 @@ function renderRecipes(){
   const head = `<div class="lt"><div class="lt-tx"><p class="kick">${n} dishes</p><h1>Recipes</h1></div><button class="cbtn green" id="r-add" aria-label="Add a recipe">${ic("plus")}</button></div>`;
   if (!n){ view.innerHTML = head + emptyState(); view.querySelector("#r-add").onclick = () => openForm(null); return; }
   const q = norm(S.q);
-  const chips = [["all","All"], ...MEALS.map(m => [m.key, m.label]), ["med","Mediterranean"], ["saved","Saved"]].map(([k, l]) =>
-    `<button class="chip ${MEALS.some(m => m.key === k) ? "m-" + k : k === "med" ? "medchip" : ""}" data-filter="${k}" aria-pressed="${S.filter === k}">${k === "saved" ? ic("bookmark") : k === "med" ? `<span class="e" aria-hidden="true">🫒</span>` : k !== "all" ? `<span class="d"></span>` : ""}${l}</button>`).join("");
+  const chips = [["all","All"], ...MEALS.map(m => [m.key, m.label]), ["mine","My meals"], ["med","Mediterranean"], ["saved","Saved"]].map(([k, l]) =>
+    `<button class="chip ${MEALS.some(m => m.key === k) ? "m-" + k : k === "med" ? "medchip" : k === "mine" ? "minechip" : ""}" data-filter="${k}" aria-pressed="${S.filter === k}">${k === "saved" ? ic("bookmark") : k === "mine" ? ic("star") : k === "med" ? `<span class="e" aria-hidden="true">🫒</span>` : k !== "all" ? `<span class="d"></span>` : ""}${l}</button>`).join("");
   const meds = Object.values(S.recipes).filter(r => r.med).sort((a, b) => MEALS.findIndex(m => m.key === a.meal) - MEALS.findIndex(m => m.key === b.meal) || (a.order ?? 999) - (b.order ?? 999));
   let body = "";
   if (!q && S.filter === "all"){
     const favs = Object.values(S.recipes).filter(r => r.saved || (r.rating || 0) >= 8).sort((a, b) => (b.rating || 0) - (a.rating || 0));
     const carousel = favs.length ? favs : Object.values(S.recipes).filter(r => r.meal !== "bedtime").sort((a, b) => b.protein - a.protein).slice(0, 8);
     body += `<button class="banner" id="kitchen"><span class="bi">${ic("basket")}</span><span><strong>What can I cook right now?</strong><span>${S.pantry.size ? S.pantry.size + " ingredients in your kitchen" : "Tick what's at home, get dishes you can make"}</span></span>${ic("right", "chev")}</button>`;
+    const mine = myMeals();
+    if (mine.length) body += `<div class="sec"><h2>My meals</h2><span>One tap to log from Today</span></div><div class="grid">${mine.slice(0, 6).map(rcard).join("")}</div>${mine.length > 6 ? `<button class="btn block" data-filter="mine" style="margin-top:10px">See all ${mine.length}</button>` : ""}`;
     body += `<div class="sec"><h2>${favs.length ? "Your favourites" : "Most protein"}</h2><span>${favs.length ? "Saved and top-rated" : "Save dishes to pin them here"}</span></div>
       <div class="hscroll">${carousel.map(r => `<button class="rc tallcard" data-open="${esc(r.id)}">${tile(r, "tall", `<span class="ov-chip">${fmt(r.kcal)} kcal</span>`)}<span class="rc-nm">${esc(r.name)}</span><span class="rc-sub num">${fmt(r.protein)} g protein</span></button>`).join("")}</div>`;
     if (meds.length) body += `<div class="sec"><h2>Mediterranean</h2><button class="link" data-medguide>How it works ${ic("right")}</button></div>
@@ -1192,13 +1222,13 @@ function renderRecipes(){
     }
   } else {
     const list = Object.values(S.recipes)
-      .filter(r => S.filter === "all" || (S.filter === "saved" ? r.saved : S.filter === "med" ? r.med : r.meal === S.filter))
+      .filter(r => S.filter === "all" || (S.filter === "saved" ? r.saved : S.filter === "med" ? r.med : S.filter === "mine" ? isMine(r) : r.meal === S.filter))
       .filter(r => !q || norm(r.name).includes(q) || (r.ingredients || []).some(i => norm(i.item).includes(q)))
       .sort((a, b) => MEALS.findIndex(m => m.key === a.meal) - MEALS.findIndex(m => m.key === b.meal) || (a.order ?? 999) - (b.order ?? 999));
     if (S.filter === "med" && !q) body += `<button class="banner medcard" data-medguide><span class="bi" aria-hidden="true">🫒</span><span><strong>How Mediterranean eating works</strong><span>The rules, adapted to what you eat</span></span>${ic("right", "chev")}</button>`;
     body += list.length
-      ? `<div class="sec"><h2>${q ? "Results" : S.filter === "saved" ? "Saved" : S.filter === "med" ? "Mediterranean" : mealOf(S.filter).label}</h2><span>${list.length} ${list.length === 1 ? "dish" : "dishes"}</span></div><div class="grid">${list.map(rcard).join("")}</div>`
-      : `<div class="empty" style="margin-top:18px"><strong>${S.filter === "saved" && !q ? "Nothing saved yet" : `No dish matches “${esc(S.q)}”`}</strong>${S.filter === "saved" && !q ? "Open a recipe and tap the bookmark to keep it here." : "Try a dish name or an ingredient, like “beef” or “feta”."}</div>`;
+      ? `<div class="sec"><h2>${q ? "Results" : S.filter === "saved" ? "Saved" : S.filter === "med" ? "Mediterranean" : S.filter === "mine" ? "My meals" : mealOf(S.filter).label}</h2><span>${list.length} ${list.length === 1 ? "dish" : "dishes"}</span></div><div class="grid">${list.map(rcard).join("")}</div>`
+      : `<div class="empty" style="margin-top:18px"><strong>${S.filter === "saved" && !q ? "Nothing saved yet" : S.filter === "mine" && !q ? "No meals of your own yet" : `No dish matches “${esc(S.q)}”`}</strong>${S.filter === "saved" && !q ? "Open a recipe and tap the bookmark to keep it here." : S.filter === "mine" && !q ? "Use Quick calories and tick Save to My meals, tap something you logged and choose Save to My meals, or add a recipe with the + button." : "Try a dish name or an ingredient, like “beef” or “feta”."}</div>`;
   }
   view.innerHTML = head + `<div class="search">${ic("search")}<input type="search" id="q" placeholder="Search dishes or ingredients" value="${esc(S.q)}" aria-label="Search recipes" autocomplete="off"></div><div class="chips">${chips}</div>` + body;
   const qi = view.querySelector("#q");
@@ -1736,7 +1766,7 @@ function openAddFood(meal = autoMeal(), d = S.day, opts = {}){
     if (sel.type !== "food") porIdx = 0;
     draw();
   };
-  const tabsList = [["recent", "Recent"], ["favs", "Favourites"], ["mine", "My foods"], ["recipes", "Recipes"], ...CATS_ORDERED.map(c => [c, c])];
+  const tabsList = [["recent", "Recent"], ["favs", "Favourites"], ["mine", "Mine"], ["recipes", "Recipes"], ...CATS_ORDERED.map(c => [c, c])];
   const listHtml = () => {
     if (q.trim()){
       const its = searchFoods(q).map(foodItem).filter(Boolean);
@@ -1747,9 +1777,9 @@ function openAddFood(meal = autoMeal(), d = S.day, opts = {}){
       const rk = recentKeys();
       rows = rk.length ? rk.map(x => { const it = foodItem(x.key); return it ? foodRow(it, `Last time: ${x.e.amount || "1 serving"}`) : ""; }).join("") : `<p class="kick" style="margin:2px 4px 8px">Popular</p>` + POPULAR.map(n => foodItem("f:" + n)).filter(Boolean).map(it => foodRow(it)).join("");
     } else {
-      const keys = tab === "favs" ? S.favs : tab === "mine" ? S.customFoods.map(c => "c:" + c.name) : tab === "recipes" ? Object.values(S.recipes).sort((a, b) => MEALS.findIndex(m => m.key === a.meal) - MEALS.findIndex(m => m.key === b.meal) || a.name.localeCompare(b.name)).map(r => "r:" + r.id) : FOOD_NAMES.filter(n => FOODS[n].c === tab).sort().map(n => "f:" + n);
+      const keys = tab === "favs" ? S.favs : tab === "mine" ? [...myMeals().map(r => "r:" + r.id), ...S.customFoods.map(c => "c:" + c.name)] : tab === "recipes" ? Object.values(S.recipes).sort((a, b) => MEALS.findIndex(m => m.key === a.meal) - MEALS.findIndex(m => m.key === b.meal) || a.name.localeCompare(b.name)).map(r => "r:" + r.id) : FOOD_NAMES.filter(n => FOODS[n].c === tab).sort().map(n => "f:" + n);
       rows = keys.map(foodItem).filter(Boolean).map(it => foodRow(it)).join("");
-      if (!rows) rows = `<div class="row" style="grid-template-columns:1fr"><span class="muted">${tab === "favs" ? "Tap the star on any food to keep it here." : tab === "mine" ? "Foods you create show up here. Use Create a food below." : "Nothing here yet."}</span></div>`;
+      if (!rows) rows = `<div class="row" style="grid-template-columns:1fr"><span class="muted">${tab === "favs" ? "Tap the star on any food to keep it here." : tab === "mine" ? "Your meals and foods show up here. Save one from Quick calories, or tap something you logged and choose Save to My meals." : "Nothing here yet."}</span></div>`;
     }
     return `<div class="chips ftabs">${tabsList.map(([k, l]) => `<button type="button" class="chip" data-ftab="${esc(k)}" aria-pressed="${tab === k}">${esc(l)}</button>`).join("")}</div><div class="list" style="margin-top:10px">${rows}</div>`;
   };
@@ -1772,6 +1802,8 @@ function openAddFood(meal = autoMeal(), d = S.day, opts = {}){
   const quickHtml = () => `<button class="back" id="af-back" style="margin:12px 0 2px">${ic("left")}Back to search</button>
     <form id="af-qf" novalidate style="display:grid;gap:14px;margin-top:8px"><div class="field"><label for="af-qn">What was it? (optional)</label><input type="text" id="af-qn" placeholder="Snack at work" autocomplete="off"></div>
     <div class="split"><div class="field"><label for="af-qk">Calories</label><input type="number" id="af-qk" inputmode="numeric" placeholder="250"></div><div class="field"><label for="af-qp">Protein (g)</label><input type="number" id="af-qp" inputmode="decimal" placeholder="Optional"></div></div>
+    <div class="split"><div class="field"><label for="af-qc">Carbs (g)</label><input type="number" id="af-qc" inputmode="decimal" placeholder="Optional"></div><div class="field"><label for="af-qfat">Fat (g)</label><input type="number" id="af-qfat" inputmode="decimal" placeholder="Optional"></div></div>
+    <label class="chk" style="margin:0 2px"><input type="checkbox" id="af-qsave"> Save to My meals for one-tap logging</label>
     <div class="err" id="af-qe"></div><button class="btn primary block" type="submit">${ic("check")} Add</button></form>`;
   const createHtml = () => `<button class="back" id="af-back" style="margin:12px 0 2px">${ic("left")}Back to search</button>
     <form id="af-cf" novalidate style="display:grid;gap:14px;margin-top:8px">
@@ -1810,12 +1842,17 @@ function openAddFood(meal = autoMeal(), d = S.day, opts = {}){
       if (editing){ replaceEntry(d, editing.id, {...e, meal:editing.meal, manual:false}); toast("Updated " + e.name); }
       else { const id = addEntry(d, e); toast(`Added ${e.name} to ${DIARY[meal][0].toLowerCase()}`, {label:"Undo", fn:() => removeEntry(d, id, true)}); }
     });
-    const qf = el.querySelector("#af-qf"); qf && (qf.onsubmit = ev => {
-      ev.preventDefault(); const k = Number(el.querySelector("#af-qk").value);
+    const qf = el.querySelector("#af-qf"); qf && (qf.onsubmit = async ev => {
+      ev.preventDefault(); const k = Number(el.querySelector("#af-qk").value), num = sel => round1(Number(el.querySelector(sel).value) || 0), opt = sel => el.querySelector(sel).value === "" ? null : num(sel);
       if (!(k > 0)){ el.querySelector("#af-qe").textContent = "Add the calories."; return; }
-      const name = el.querySelector("#af-qn").value.trim() || "Quick calories";
-      const id = addEntry(d, {meal, kind:"quick", name, kcal:Math.round(k), p:round1(Number(el.querySelector("#af-qp").value) || 0), c:0, f:0, emoji:"⚡"});
-      closeSheet(); toast(`Added ${fmt(k)} kcal to ${DIARY[meal][0].toLowerCase()}`, {label:"Undo", fn:() => removeEntry(d, id, true)});
+      const save = el.querySelector("#af-qsave").checked, typed = el.querySelector("#af-qn").value.trim();
+      if (save && !typed){ el.querySelector("#af-qe").textContent = "Give it a name so you can find it next time."; return; }
+      const name = typed || "Quick calories", entry = {meal, kind:"quick", name, kcal:Math.round(k), p:num("#af-qp"), c:num("#af-qc"), f:num("#af-qfat"), emoji:"⚡"};
+      let res = null;
+      if (save){ res = await saveMyMeal({...entry, p:opt("#af-qp"), c:opt("#af-qc"), f:opt("#af-qfat"), emoji:matchFoodEmoji(name) || "⭐"});
+        if (res){ const m = S.recipes[res.id]; Object.assign(entry, {kind:"recipe", ref:res.id, name:m.name, emoji:m.emoji, p:m.protein, c:m.c, f:m.f}); } }
+      const id = addEntry(d, entry);
+      closeSheet(); toast(res ? `Added ${entry.name} and saved it to My meals` : `Added ${fmt(k)} kcal to ${DIARY[meal][0].toLowerCase()}`, {label:"Undo", fn:() => removeEntry(d, id, true)});
     });
     const cf = el.querySelector("#af-cf"); cf && (cf.onsubmit = ev => {
       ev.preventDefault(); const name = el.querySelector("#af-cn").value.trim(), kv = el.querySelector("#af-ck").value;
@@ -1847,6 +1884,7 @@ function openEntry(id, d = S.day){
         <button class="row arow" id="e-edit">${ic("pencil")}<span class="nm">Edit calories and macros</span>${ic("right", "chev")}</button>
         ${canAmount ? `<button class="row arow" id="e-amt">${ic("pencil")}<span class="nm">${e.kind === "recipe" ? "Change servings" : "Change amount"}</span>${ic("right", "chev")}</button>` : ""}
         ${r && S.recipes[r.id] ? `<button class="row arow" id="e-ing">${ic("check")}<span class="nm">Change ingredients</span>${ic("right", "chev")}</button><button class="row arow" id="e-rec">${ic("recipes")}<span class="nm">Open the recipe</span>${ic("right", "chev")}</button>` : ""}
+        ${e.kind !== "drink" && !(e.kind === "recipe" && S.recipes[e.ref]) ? `<button class="row arow" id="e-mine">${ic("bookmark")}<span class="nm">Save to My meals</span>${ic("right", "chev")}</button>` : ""}
         <button class="row arow" id="e-dup">${ic("plus")}<span class="nm">Log this again</span>${ic("right", "chev")}</button>
       </div>
       <button class="btn danger block" id="e-del" style="margin-top:16px">${ic("trash")} Remove from ${DIARY[e.meal][0].toLowerCase()}</button></div>`);
@@ -1857,6 +1895,13 @@ function openEntry(id, d = S.day){
     const ea = el.querySelector("#e-amt"); ea && (ea.onclick = () => openAddFood(e.meal, d, {entry:e}));
     const ei = el.querySelector("#e-ing"); ei && (ei.onclick = () => openLogMeal(e.meal, id, d));
     const er = el.querySelector("#e-rec"); er && (er.onclick = () => openRecipe(r.id));
+    const emn = el.querySelector("#e-mine"); emn && (emn.onclick = async () => {
+      const src = r ? r : null, ings = e.kind === "food" && e.grams ? [{item:e.ref, q:Math.round(e.grams), u:"g"}] : (src?.ingredients || []);
+      const res = await saveMyMeal({name:e.name, meal:e.meal, kcal:e.kcal, p:e.p, c:e.c, f:e.f, ingredients:ings, emoji:e.emoji});
+      if (!res) return;
+      replaceEntry(d, id, {kind:"recipe", ref:res.id});
+      closeSheet(); toast(res.updated ? `Updated ${e.name} in My meals` : `Saved to My meals. It's in Quick add now`);
+    });
     el.querySelector("#e-dup").onclick = () => { const {id:_i, at, ...rest} = e; const nid = addEntry(d, rest); closeSheet(); toast(`Logged ${e.name} again`, {label:"Undo", fn:() => removeEntry(d, nid, true)}); };
     el.querySelector("#e-del").onclick = () => { closeSheet(); removeEntry(d, id); };
   };
@@ -2264,8 +2309,9 @@ function openForm(r){
         <div class="field"><label for="f-name">Dish name</label><input type="text" id="f-name" value="${esc(r?.name || "")}" placeholder="Beef stroganoff with mash"></div>
         <div class="field"><span class="lab">Meal</span><div class="seg">${MEALS.map(m => `<button type="button" class="m-${m.key}" data-meal="${m.key}" aria-pressed="${m.key === meal}">${m.label}</button>`).join("")}</div></div>
         <div class="split"><div class="field"><label for="f-kcal">Calories</label><input type="number" id="f-kcal" inputmode="numeric" value="${r?.kcal ?? ""}" placeholder="600"></div><div class="field"><label for="f-protein">Protein (g)</label><input type="number" id="f-protein" inputmode="numeric" value="${r?.protein ?? ""}" placeholder="40"></div></div>
+        <div class="split"><div class="field"><label for="f-carbs">Carbs (g, optional)</label><input type="number" id="f-carbs" inputmode="numeric" value="${r?.c ?? ""}"></div><div class="field"><label for="f-fat">Fat (g, optional)</label><input type="number" id="f-fat" inputmode="numeric" value="${r?.f ?? ""}"></div></div>
         ${S.assets ? `<div class="field"><span class="lab">Photo</span><label class="btn photo-btn">${ic("camera")}<span id="f-photo-l">${r?.photo ? "Replace the photo" : "Add a photo of the dish"}</span><input type="file" accept="image/*" id="f-photo" hidden></label></div>` : ""}
-        <div class="field"><span class="lab">Ingredients for one serving</span><div id="f-ings">${(r?.ingredients?.length ? r.ingredients : [{item:"", q:"", u:"g"}, {item:"", q:"", u:"g"}]).map(ingRowHtml).join("")}</div><button type="button" class="btn" id="f-add" style="margin-top:4px">${ic("plus")} Add ingredient</button></div>
+        <div class="field"><span class="lab">Ingredients for one serving (optional)</span><div id="f-ings">${(r?.ingredients?.length ? r.ingredients : [{item:"", q:"", u:"g"}, {item:"", q:"", u:"g"}]).map(ingRowHtml).join("")}</div><button type="button" class="btn" id="f-add" style="margin-top:4px">${ic("plus")} Add ingredient</button></div>
         <label class="chk" style="margin:0 2px 14px"><input type="checkbox" id="f-med" ${r?.med ? "checked" : ""}> Mediterranean-style (olive oil, veg, whole grains)</label>
         <div class="field"><label for="f-yt">YouTube video (optional)</label><input type="text" id="f-yt" inputmode="url" autocomplete="off" placeholder="Paste a YouTube link" value="${r?.video?.id ? "https://youtu.be/" + esc(r.video.id) : ""}"></div>
         <div class="field"><label for="f-steps">How to make it</label><textarea id="f-steps" rows="5" placeholder="One short sentence per step.">${esc(r?.steps || "")}</textarea></div>
@@ -2297,7 +2343,6 @@ function openForm(r){
     const fail = msg => { err.textContent = msg; err.scrollIntoView({block:"center", behavior:"smooth"}); };
     if (!name) return fail("Give the dish a name.");
     if (!(kcal > 0)) return fail("Add the calories for one serving.");
-    if (!ingredients.length) return fail("Add at least one ingredient.");
     if (!S.db) return fail("Saving isn't available right now.");
     const id = r?.id || (name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "dish") + "-" + Math.random().toString(36).slice(2, 6);
     const btns = el.querySelectorAll("#f-save,#f-save-top"); btns.forEach(b => b.disabled = true); err.textContent = "";
@@ -2305,6 +2350,9 @@ function openForm(r){
     try {
       if (photoFile && S.assets){ const blob = await shrink(photoFile); const up = await S.assets.upload(blob, {type:imgType(blob)}); if (photo) S.assets.delete(photo).catch(() => {}); photo = up.id; }
       const body = {id, name, meal, kcal:Math.round(kcal), protein:Math.round(protein), ingredients, steps:el.querySelector("#f-steps").value.trim(), order:r?.order ?? 900, rating:r?.rating || 0, saved:!!r?.saved};
+      if (isNew || r?.mine){ body.mine = true; body.createdAt = r?.createdAt || Date.now(); }
+      const fc = el.querySelector("#f-carbs").value, ff = el.querySelector("#f-fat").value;
+      if (fc !== "" && ff !== ""){ body.c = Math.round(Number(fc)); body.f = Math.round(Number(ff)); }
       if (photo) body.photo = photo;
       if (emoji) body.emoji = emoji;
       if (el.querySelector("#f-med").checked) body.med = true;

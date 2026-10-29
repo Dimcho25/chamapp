@@ -1,5 +1,5 @@
 // Offline support: the app shell is cached so chamapp opens with no connection.
-const CACHE = "chamapp-v9";
+const CACHE = "chamapp-v10";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
