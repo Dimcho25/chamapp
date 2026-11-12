@@ -1,5 +1,5 @@
 // Offline support: the app shell is cached so chamapp opens with no connection.
-const CACHE = "chamapp-v11";
+const CACHE = "chamapp-v12";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
@@ -12,9 +12,15 @@ self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
-  // Pages: try the network first so updates arrive, fall back to the cached copy offline.
+  // Pages: open the copy saved on the phone straight away and fetch any update in the background,
+  // so a slow connection never holds up opening the app. Updates show the next time it's opened.
   if (req.mode === "navigate"){
-    e.respondWith(fetch(req).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put("./index.html", copy)); return r; }).catch(() => caches.match("./index.html")));
+    const fresh = fetch(req, {cache:"no-store"}).then(r => {
+      if (r.ok){ const copy = r.clone(); e.waitUntil(caches.open(CACHE).then(c => c.put("./index.html", copy))); }
+      return r;
+    });
+    e.waitUntil(fresh.catch(() => {}));
+    e.respondWith(caches.match("./index.html").then(hit => hit || fresh.catch(() => caches.match("./"))));
     return;
   }
   // Everything else (icons, fonts): cached copy first, refreshed in the background.
